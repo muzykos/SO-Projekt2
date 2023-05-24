@@ -2,7 +2,7 @@ OBJ = main
 
 all: $(OBJ)
 $(OBJ): %: %.c
-	$(CC) $(CFLAGS) -pthread -o $@ $<
+	$(CC) $(CFLAGS) -pthread -lrt -o $@ $<
 
 
 .PHONY: clean
