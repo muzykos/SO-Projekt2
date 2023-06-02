@@ -1,25 +1,57 @@
+#include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <unistd.h>
 #include <pthread.h>
 #include <semaphore.h>
 #include <string.h>
 #include <syslog.h>
 #include <unistd.h>
+#include <getopt.h>
 
 void *client(void *ptr);
 void *barber();
 int rand_time(int min,int max);
 
 volatile int l_czek = 0;
-int clientcount = 10;
 volatile long rezygnanci = 0;
 pthread_mutex_t Czek_mutex;
 sem_t klient, fryzjer;
+volatile long clientcount = 10;
+volatile long min_sleep_time = 5;
+volatile long max_sleep_time = 10;
 
 int main(int argc, char *argv[])
 {
     openlog("loglog", LOG_CONS | LOG_PID | LOG_NDELAY, LOG_LOCAL0);
+    int c;
+    while ((c = getopt(argc,argv,"c:m:x:")) != -1){
+        switch (c)
+        {
+        case 'c': //client amount argument
+            clientcount = atoi(optarg);
+            syslog(LOG_INFO,"client count set to %ld",clientcount);
+            break;
+        case 'm': //mini time argument
+            min_sleep_time = atoi(optarg);
+            syslog(LOG_INFO,"minimum sleep time set to %ld seconds",min_sleep_time);
+            break;
+        case 'x': //maximum time argument
+            max_sleep_time = atoi(optarg);
+            syslog(LOG_INFO,"maximum sleep time set to %ld seconds",max_sleep_time);
+            break;
+        case '?': //Failopt
+            if(optopt == 'c' || optopt == 'm' || optopt == 'x')
+                syslog(LOG_INFO, "Option -%c requires argument. ",optopt);
+            else if(isprint(optopt))
+                syslog(LOG_INFO, "Unknown opt '-%c'.",optopt);
+            else
+                syslog(LOG_INFO, "unknown opt char '\\x%x'",optopt);
+            exit(EXIT_FAILURE);
+        default:
+            exit(EXIT_FAILURE);
+        }
+    }
+
     pthread_t barbers;
     pthread_t clients[clientcount];
     int iret1;
@@ -64,13 +96,14 @@ void *client(void *ptr)
             pthread_mutex_unlock(&Czek_mutex);
             sem_wait(&fryzjer);
             syslog(LOG_INFO, "Client %ld is worked on by the barber", nr);
-            printf("rezygnacja:%ld Poczekalnia:%d/%d [Fotel:%ld]\n",rezygnanci,l_czek,clientcount,nr);
+            printf("rezygnacja:%ld Poczekalnia:%d/%d [Fotel:%ld]\n",rezygnanci,l_czek,10,nr);
         }
         else
         {
+            rezygnanci += 1;
             pthread_mutex_unlock(&Czek_mutex);
         }
-        sleep(rand_time(5,20));
+        sleep(rand_time(min_sleep_time,max_sleep_time));
     }
 }
 
@@ -86,15 +119,20 @@ void *barber()
             sem_post(&fryzjer);
         pthread_mutex_unlock(&Czek_mutex);
 
-        if(sleep(rand_time(1,5))==-1){
-            syslog(LOG_ERR, "sleep died");
-        };
+        sleep(rand_time(min_sleep_time,max_sleep_time));
         syslog(LOG_INFO, "Barber stopped working");
     }
 }
 
 int rand_time(int min,int max){
     srand(time(NULL));
-    int secs = (rand()%max)+min;
+    int secs;
+    if(max > min){
+        secs = (rand()%max)+min;
+    }else if(max == min){
+        secs = max;
+    }else{
+        secs = (rand()%min)+max;
+    }
     return secs;
 }
