@@ -8,15 +8,24 @@
 #include <unistd.h>
 #include <getopt.h>
 
+//wątek klienta
 void *client(void *ptr);
+
+//wątek fryzjera
 void *barber();
+
+//wylosuj czas pomiędzy dwoma wartościami
 int rand_time(int min,int max);
+
+//przydziel nowy numer klientowi
+long grant_new_number();
 
 volatile int l_czek = 0;
 volatile long rezygnanci = 0;
-pthread_mutex_t Czek_mutex;
+pthread_mutex_t Czek_mutex,count_mutex;
 sem_t klient, fryzjer;
 volatile long clientcount = 10;
+volatile long clientnr = 11;
 volatile long min_sleep_time = 5;
 volatile long max_sleep_time = 10;
 
@@ -29,6 +38,7 @@ int main(int argc, char *argv[])
         {
         case 'c': //client amount argument
             clientcount = atoi(optarg);
+            clientnr = clientcount + 1;
             syslog(LOG_INFO,"client count set to %ld",clientcount);
             break;
         case 'm': //mini time argument
@@ -86,6 +96,7 @@ int main(int argc, char *argv[])
 void *client(void *ptr)
 {
     long nr = (long)ptr;
+    long temp;
     while (1)
     {
         pthread_mutex_lock(&Czek_mutex);
@@ -104,6 +115,11 @@ void *client(void *ptr)
             pthread_mutex_unlock(&Czek_mutex);
         }
         sleep(rand_time(min_sleep_time,max_sleep_time));
+        
+        //temp = nr;
+        nr = grant_new_number();
+
+        //printf("klient %ld zmienia numer na %ld\n",temp,nr);
     }
 }
 
@@ -135,4 +151,12 @@ int rand_time(int min,int max){
         secs = (rand()%min)+max;
     }
     return secs;
+}
+
+long grant_new_number(){
+    pthread_mutex_lock(&count_mutex);
+    long temp = clientnr;
+    clientnr +=1;
+    pthread_mutex_unlock(&count_mutex);
+    return temp;
 }

@@ -1,4 +1,4 @@
-OBJ = main
+OBJ = main main2
 
 all: $(OBJ)
 $(OBJ): %: %.c
