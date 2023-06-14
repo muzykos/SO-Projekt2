@@ -8,3 +8,4 @@ $(OBJ): %: %.c
 .PHONY: clean
 clean:
 	rm -f *.o main
+	rm -f *.o main2

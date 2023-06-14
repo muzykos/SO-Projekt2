@@ -7,6 +7,16 @@
 #include <syslog.h>
 #include <unistd.h>
 #include <getopt.h>
+#include <assert.h>
+
+typedef struct Thread_queue thread_queue;
+
+struct Thread_queue {
+    long value;
+    thread_queue *next;
+};
+
+
 
 //wątek klienta
 void *client(void *ptr);
@@ -20,14 +30,34 @@ int rand_time(int min,int max);
 //przydziel nowy numer klientowi
 long grant_new_number();
 
+
+//dołącz do kolejki
+int queue_enqueue(thread_queue *queue, int id);
+
+//usuń z początku kolejki
+thread_queue *queue_dequeue(thread_queue *first);
+
+//wypisz kolejkę
+void print_queue(thread_queue *first);
+
+//zwróć długość kolejki
+int queue_size(thread_queue *first);
+
+//inicjalizuj kolejkę
+thread_queue *queue_init();
+
+
 volatile int l_czek = 0;
 volatile long rezygnanci = 0;
-pthread_mutex_t Czek_mutex,count_mutex;
+pthread_mutex_t Czek_mutex,count_mutex,queue_mutex;
 sem_t klient, fryzjer;
 volatile long clientcount = 10;
 volatile long clientnr = 11;
+int waitingroom_size = 10;
 volatile long min_sleep_time = 5;
 volatile long max_sleep_time = 10;
+ 
+thread_queue *client_queue;
 
 int main(int argc, char *argv[])
 {
@@ -62,12 +92,15 @@ int main(int argc, char *argv[])
         }
     }
 
+
     pthread_t barbers;
     pthread_t clients[clientcount];
     int iret1;
 
     sem_init(&klient,0,0);
     sem_init(&fryzjer,0,0);
+
+    client_queue = queue_init();
 
     iret1=pthread_create(&barbers,NULL,barber,NULL);
     if(iret1){
@@ -100,14 +133,25 @@ void *client(void *ptr)
     while (1)
     {
         pthread_mutex_lock(&Czek_mutex);
-        if (l_czek < 10)
+        if (l_czek < waitingroom_size)
         {
-            l_czek = l_czek + 1;
+            pthread_mutex_lock(&queue_mutex);
+            queue_enqueue(client_queue,nr);
+            pthread_mutex_unlock(&queue_mutex);
+
+            l_czek = l_czek+1;
             sem_post(&klient);
+
             pthread_mutex_unlock(&Czek_mutex);
+
+            while (client_queue->value!=nr){}; //wait
+
+
             sem_wait(&fryzjer);
+
             syslog(LOG_INFO, "Client %ld is worked on by the barber", nr);
-            printf("rezygnacja:%ld Poczekalnia:%d/%d [Fotel:%ld]\n",rezygnanci,l_czek,10,nr);
+            printf("rezygnacja:%ld Poczekalnia:%d/%d [Fotel:%ld]\n",rezygnanci,l_czek,waitingroom_size,nr);
+            print_queue(client_queue);
         }
         else
         {
@@ -130,9 +174,14 @@ void *barber()
         sem_wait(&klient);
 
         pthread_mutex_lock(&Czek_mutex);
-            l_czek = l_czek - 1;
-            syslog(LOG_INFO, "Barber started working");
             sem_post(&fryzjer);
+            l_czek = l_czek - 1;
+
+            pthread_mutex_lock(&queue_mutex);
+            client_queue = queue_dequeue(client_queue);
+            pthread_mutex_unlock(&queue_mutex);
+
+            syslog(LOG_INFO, "Barber started working");
         pthread_mutex_unlock(&Czek_mutex);
 
         sleep(rand_time(min_sleep_time,max_sleep_time));
@@ -159,4 +208,57 @@ long grant_new_number(){
     clientnr +=1;
     pthread_mutex_unlock(&count_mutex);
     return temp;
+}
+
+
+int queue_enqueue(thread_queue *queue, int value){
+    while(queue->next != NULL){
+        queue = queue->next;
+    }
+    queue->next = malloc(sizeof(thread_queue));
+
+    queue = queue->next;
+    queue->next = NULL;
+    queue->value = value;
+    return value;
+}
+
+thread_queue *queue_dequeue(thread_queue *first){
+    if(first->next==NULL){
+        first->value =-1;
+        return first;
+    }
+    thread_queue *second = first->next;
+    //pthread_cond_destroy(first->data.cond);
+    free(first);
+    return second;
+}
+
+void print_queue(thread_queue *first){
+    thread_queue *queue = first;
+    printf("queue : [");
+    while (queue != NULL)
+    {
+        if(queue->next!=NULL)
+        {printf("%ld,",queue->value);}
+        else
+        {printf("%ld",queue->value);}
+        queue = queue->next;   
+    }
+    printf("]\n");
+}
+
+int queue_size(thread_queue *first){
+    int size = 0;
+    while(first->next != NULL){
+        first = first->next;
+        size++;
+    }
+    return size;
+}
+
+thread_queue *queue_init(){
+    thread_queue *queue = malloc(sizeof(thread_queue));
+    queue->next = NULL;
+    return queue;
 }
