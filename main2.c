@@ -54,6 +54,8 @@ volatile int l_czek = 0;
 int info_flag = 0;
 volatile long rezygnanci = 0;
 pthread_mutex_t Czek_mutex,count_mutex,queue_mutex,resign_queue_mutex;
+pthread_cond_t client_cond;
+pthread_cond_t barber_cond;
 sem_t klient, fryzjer; //lobby;
 long clientcount = 10;
 long clientnr = 11;
@@ -104,6 +106,9 @@ int main(int argc, char *argv[])
     pthread_t barbers;
     pthread_t clients[clientcount];
     int iret1;
+
+    pthread_cond_init(&barber_cond,NULL);
+    pthread_cond_init(&client_cond,NULL);
 
     sem_init(&klient,0,0);
     sem_init(&fryzjer,0,0);
@@ -157,7 +162,7 @@ void *client(void *ptr)
             while (client_queue->value!=nr){}; //wait
 
 
-            sem_wait(&fryzjer);
+            pthread_cond_wait(&barber_cond,&Czek_mutex);
 
             syslog(LOG_INFO, "Client %ld is worked on by the barber", nr);
             printf("rezygnacja:%ld Poczekalnia:%d/%d [Fotel:%ld]\n",rezygnanci,l_czek,waitingroom_size,nr);
@@ -203,8 +208,7 @@ void *barber()
     {
         sem_wait(&klient);
 
-        pthread_mutex_lock(&Czek_mutex);
-            sem_post(&fryzjer);
+            pthread_cond_broadcast(&barber_cond);
             l_czek = l_czek - 1;
 
             pthread_mutex_lock(&queue_mutex);
@@ -212,7 +216,6 @@ void *barber()
             pthread_mutex_unlock(&queue_mutex);
 
             syslog(LOG_INFO, "Barber started working");
-        pthread_mutex_unlock(&Czek_mutex);
 
         sleep(rand_time(min_sleep_time,max_sleep_time));
         syslog(LOG_INFO, "Barber stopped working");
